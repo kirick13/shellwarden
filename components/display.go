@@ -35,7 +35,7 @@ func NewDisplay() *Display {
 		height: physicalHeight,
 	}
 
-	d.SetCurrentView(view.NewBwUnlockView())
+	d.SetCurrentView(view.NewSpinnerView("starting Shellwarden..."))
 	return d
 }
 

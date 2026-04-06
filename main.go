@@ -22,8 +22,7 @@ type model struct {
 }
 
 type bwUnlockSuccessMsg struct {
-	Session string
-	Hosts   []bw.Host
+	Hosts []bw.Host
 }
 
 type bwUnlockErrorMsg struct {
@@ -38,6 +37,15 @@ type bwReloadErrorMsg struct {
 	Err error
 }
 
+type bwBootstrapSuccessMsg struct {
+	Hosts       []bw.Host
+	NeedsUnlock bool
+}
+
+type bwBootstrapErrorMsg struct {
+	Err error
+}
+
 func initialModel() model {
 	return model{
 		display: display.NewDisplay(),
@@ -45,7 +53,10 @@ func initialModel() model {
 }
 
 func (m model) Init() tea.Cmd {
-	return nil
+	if spinnerView, ok := m.display.CurrentView.(*view.SpinnerView); ok {
+		return tea.Batch(spinnerView.Init(), bootstrapCmd())
+	}
+	return bootstrapCmd()
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -59,8 +70,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.display.UpdateDocumentSize(msg.Width, msg.Height)
 		return m, viewCmd
 
+	case bwBootstrapSuccessMsg:
+		if msg.NeedsUnlock {
+			m.display.SetCurrentView(view.NewBwUnlockView())
+		} else {
+			m.display.SetCurrentView(view.NewHostsView(msg.Hosts))
+		}
+		return m, viewCmd
+
+	case bwBootstrapErrorMsg:
+		m.display.SetCurrentView(view.NewTextView(msg.Err.Error()))
+		return m, viewCmd
+
 	case bwUnlockSuccessMsg:
-		m.display.SetBWSession(msg.Session)
 		m.display.SetCurrentView(view.NewHostsView(msg.Hosts))
 		return m, viewCmd
 
@@ -75,8 +97,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, viewCmd
 
 	case bwReloadErrorMsg:
-		m.display.SetCurrentView(view.NewTextView(msg.Err.Error()))
-		return m, viewCmd
+		spinnerView := view.NewSpinnerView("starting Shellwarden...")
+		m.display.SetCurrentView(spinnerView)
+		return m, tea.Batch(spinnerView.Init(), bootstrapCmd())
 
 	// case sshFinishedMsg:
 	// 	return m, tea.ClearScreen
@@ -100,22 +123,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, viewCmd
 				}
 
-				progressView := view.NewSpinnerView("unlocking Bitwarden...")
-				m.display.SetCurrentView(progressView)
-				return m, tea.Batch(progressView.Init(), unlockBWCmd(password))
+				spinnerView := view.NewSpinnerView("unlocking Bitwarden...")
+				m.display.SetCurrentView(spinnerView)
+				return m, tea.Batch(spinnerView.Init(), unlockHostsCmd(password))
 			}
 
 			m.display.CurrentView.OnEnter()
 		case "r":
 			if _, ok := m.display.CurrentView.(*view.HostsView); ok {
-				session := m.display.BWSession()
-				if session == "" {
-					return m, viewCmd
-				}
-
 				spinnerView := view.NewSpinnerView("updating hosts...")
 				m.display.SetCurrentView(spinnerView)
-				return m, tea.Batch(spinnerView.Init(), reloadHostsCmd(session))
+				return m, tea.Batch(spinnerView.Init(), reloadHostsCmd())
 			}
 
 			m.display.CurrentView.OnKey(msg.String())
@@ -166,23 +184,36 @@ func (m model) View() tea.View {
 	return tea.NewView(m.display.Render())
 }
 
-func unlockBWCmd(password string) tea.Cmd {
+func bootstrapCmd() tea.Cmd {
 	return func() tea.Msg {
-		result, err := bw.Unlock(password)
+		result, err := bw.Bootstrap()
+		if err != nil {
+			return bwBootstrapErrorMsg{Err: err}
+		}
+
+		return bwBootstrapSuccessMsg{
+			Hosts:       result.Hosts,
+			NeedsUnlock: result.NeedsUnlock,
+		}
+	}
+}
+
+func unlockHostsCmd(password string) tea.Cmd {
+	return func() tea.Msg {
+		hosts, err := bw.UnlockHosts(password)
 		if err != nil {
 			return bwUnlockErrorMsg{Err: err}
 		}
 
 		return bwUnlockSuccessMsg{
-			Session: result.Session,
-			Hosts:   result.Hosts,
+			Hosts: hosts,
 		}
 	}
 }
 
-func reloadHostsCmd(session string) tea.Cmd {
+func reloadHostsCmd() tea.Cmd {
 	return func() tea.Msg {
-		hosts, err := bw.ListHosts(session)
+		hosts, err := bw.ReloadHosts()
 		if err != nil {
 			return bwReloadErrorMsg{Err: err}
 		}
