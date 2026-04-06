@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"charm.land/lipgloss/v2"
-	card "github.com/kirick13/shellwarden/components/card"
-	keys "github.com/kirick13/shellwarden/components/keys"
+	card "github.com/kirick13/shellwarden/ui/components/card"
+	keys "github.com/kirick13/shellwarden/ui/components/keys"
 )
 
 type DialogDeleteView struct {

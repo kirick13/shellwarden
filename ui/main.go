@@ -5,9 +5,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/kirick13/shellwarden/bw"
-	display "github.com/kirick13/shellwarden/components"
-	view "github.com/kirick13/shellwarden/components/view"
+	"github.com/kirick13/shellwarden/shared"
+	"github.com/kirick13/shellwarden/ui/components"
+	view "github.com/kirick13/shellwarden/ui/components/view"
 )
 
 func main() {
@@ -18,12 +18,12 @@ func main() {
 }
 
 type model struct {
-	display  *display.Display
+	display  *components.Display
 	quitting bool
 }
 
 type bwUnlockSuccessMsg struct {
-	Hosts []bw.Host
+	Hosts []shared.Host
 }
 
 type bwUnlockErrorMsg struct {
@@ -31,7 +31,7 @@ type bwUnlockErrorMsg struct {
 }
 
 type bwReloadSuccessMsg struct {
-	Hosts []bw.Host
+	Hosts []shared.Host
 }
 
 type bwReloadErrorMsg struct {
@@ -39,7 +39,7 @@ type bwReloadErrorMsg struct {
 }
 
 type bwGetHostsSuccessMsg struct {
-	Hosts []bw.Host
+	Hosts []shared.Host
 }
 
 type bwGetHostsErrorMsg struct {
@@ -47,11 +47,25 @@ type bwGetHostsErrorMsg struct {
 }
 
 type bwBootstrapSuccessMsg struct {
-	Hosts       []bw.Host
+	Hosts       []shared.Host
 	NeedsUnlock bool
 }
 
 type bwBootstrapErrorMsg struct {
+	Err error
+}
+
+type serverRestartSuccessMsg struct {
+	Hosts []shared.Host
+}
+
+type serverRestartErrorMsg struct {
+	Err error
+}
+
+type serverKillSuccessMsg struct{}
+
+type serverKillErrorMsg struct {
 	Err error
 }
 
@@ -60,7 +74,7 @@ type unlockPollTickMsg struct{}
 
 func initialModel() model {
 	return model{
-		display: display.NewDisplay(),
+		display: components.NewDisplay(),
 	}
 }
 
@@ -103,7 +117,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case bwUnlockErrorMsg:
 		unlockView := view.NewBwUnlockView()
-		if msg.Err != bw.ErrServerExists {
+		if msg.Err != shared.ErrServerExists {
 			unlockView.SetError(msg.Err.Error())
 		}
 		m.display.SetCurrentView(unlockView)
@@ -141,6 +155,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, viewCmd
 
+	case serverRestartSuccessMsg:
+		m.display.SetCurrentView(view.NewHostsView(msg.Hosts))
+		return m, tea.Batch(viewCmd, hostsPollTickCmd())
+
+	case serverRestartErrorMsg:
+		spinnerView := view.NewSpinnerView("starting Shellwarden...")
+		m.display.SetCurrentView(spinnerView)
+		return m, tea.Batch(spinnerView.Init(), bootstrapCmd())
+
+	case serverKillSuccessMsg:
+		spinnerView := view.NewSpinnerView("starting Shellwarden...")
+		m.display.SetCurrentView(spinnerView)
+		return m, tea.Batch(spinnerView.Init(), bootstrapCmd())
+
+	case serverKillErrorMsg:
+		spinnerView := view.NewSpinnerView("starting Shellwarden...")
+		m.display.SetCurrentView(spinnerView)
+		return m, tea.Batch(spinnerView.Init(), bootstrapCmd())
+
 	case hostsPollTickMsg:
 		if _, ok := m.display.CurrentView.(*view.HostsView); ok {
 			return m, tea.Batch(getHostsCmd(), hostsPollTickCmd())
@@ -153,14 +186,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, viewCmd
 
-	// case sshFinishedMsg:
-	// 	return m, tea.ClearScreen
-
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
 			m.quitting = true
 			return m, tea.Quit
+		case "ctrl+k":
+			if m.display != nil && m.display.CurrentView != nil {
+				current := m.display.CurrentView
+				m.display.SetCurrentView(view.NewDialogServerRestartView(
+					current,
+					func() {
+						spinnerView := view.NewSpinnerView("restarting Shellwarden...")
+						m.display.SetCurrentView(spinnerView)
+					},
+					func() {
+						spinnerView := view.NewSpinnerView("stopping Shellwarden...")
+						m.display.SetCurrentView(spinnerView)
+					},
+				))
+			}
+			return m, nil
 		case "tab":
 			m.display.MoveFocus(1)
 			return m, nil
@@ -182,6 +228,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			m.display.CurrentView.OnEnter()
 		case "r":
+			if _, ok := m.display.CurrentView.(*view.DialogServerRestartView); ok {
+				spinnerView := view.NewSpinnerView("restarting Shellwarden...")
+				m.display.SetCurrentView(spinnerView)
+				return m, tea.Batch(spinnerView.Init(), restartServerCmd())
+			}
 			if _, ok := m.display.CurrentView.(*view.HostsView); ok {
 				spinnerView := view.NewSpinnerView("updating hosts...")
 				m.display.SetCurrentView(spinnerView)
@@ -189,18 +240,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			m.display.CurrentView.OnKey(msg.String())
+		case "k":
+			if _, ok := m.display.CurrentView.(*view.DialogServerRestartView); ok {
+				spinnerView := view.NewSpinnerView("stopping Shellwarden...")
+				m.display.SetCurrentView(spinnerView)
+				return m, tea.Batch(spinnerView.Init(), killServerCmd())
+			}
+
+			m.display.CurrentView.OnKey(msg.String())
 		case "esc":
 			m.display.CurrentView.OnEsc()
 		default:
 			m.display.CurrentView.OnKey(msg.String())
-
-			// if missing := m.validate(); missing != "" {
-			// 	return m, nil
-			// }
-
-			// return m, tea.ExecProcess(m.sshCommand(), func(error) tea.Msg {
-			// 	return sshFinishedMsg{}
-			// })
 		}
 	}
 
@@ -223,22 +274,12 @@ func (m model) View() tea.View {
 		return tea.NewView("")
 	}
 
-	// str := lipgloss.JoinVertical(lipgloss.Top, m.inputs[0].Render(), "", m.inputs[1].Render(), "", m.inputs[2].Render())
-
-	// layers := []*lipgloss.Layer{
-	// 	// lipgloss.NewLayer(bg),
-	// 	lipgloss.NewLayer(str),
-	// }
-
-	// comp := lipgloss.NewCompositor(layers...)
-	// comp.Render()
-
 	return tea.NewView(m.display.Render())
 }
 
 func bootstrapCmd() tea.Cmd {
 	return func() tea.Msg {
-		result, err := bw.Bootstrap()
+		result, err := Bootstrap()
 		if err != nil {
 			return bwBootstrapErrorMsg{Err: err}
 		}
@@ -252,27 +293,61 @@ func bootstrapCmd() tea.Cmd {
 
 func unlockHostsCmd(password string) tea.Cmd {
 	return func() tea.Msg {
-		hosts, err := bw.UnlockHosts(password)
+		hosts, err := StartServerWithPassword(password)
 		if err != nil {
 			return bwUnlockErrorMsg{Err: err}
 		}
 
-		return bwUnlockSuccessMsg{
-			Hosts: hosts,
-		}
+		return bwUnlockSuccessMsg{Hosts: hosts}
 	}
 }
 
 func reloadHostsCmd() tea.Cmd {
 	return func() tea.Msg {
-		hosts, err := bw.ReloadHosts()
+		hosts, err := ReloadHosts()
 		if err != nil {
 			return bwReloadErrorMsg{Err: err}
 		}
 
-		return bwReloadSuccessMsg{
-			Hosts: hosts,
+		return bwReloadSuccessMsg{Hosts: hosts}
+	}
+}
+
+func getHostsCmd() tea.Cmd {
+	return func() tea.Msg {
+		hosts, err := GetHosts()
+		if err != nil {
+			return bwGetHostsErrorMsg{Err: err}
 		}
+
+		return bwGetHostsSuccessMsg{Hosts: hosts}
+	}
+}
+
+func restartServerCmd() tea.Cmd {
+	return func() tea.Msg {
+		session, err := KillServer()
+		if err != nil {
+			return serverRestartErrorMsg{Err: err}
+		}
+
+		hosts, err := RestartServerWithSession(session)
+		if err != nil {
+			return serverRestartErrorMsg{Err: err}
+		}
+
+		return serverRestartSuccessMsg{Hosts: hosts}
+	}
+}
+
+func killServerCmd() tea.Cmd {
+	return func() tea.Msg {
+		if _, err := KillServer(); err != nil {
+			return serverKillErrorMsg{Err: err}
+		}
+
+		waitForServerStop()
+		return serverKillSuccessMsg{}
 	}
 }
 
@@ -286,17 +361,4 @@ func unlockPollTickCmd() tea.Cmd {
 	return tea.Tick(1*time.Second, func(time.Time) tea.Msg {
 		return unlockPollTickMsg{}
 	})
-}
-
-func getHostsCmd() tea.Cmd {
-	return func() tea.Msg {
-		hosts, err := bw.GetHosts()
-		if err != nil {
-			return bwGetHostsErrorMsg{Err: err}
-		}
-
-		return bwGetHostsSuccessMsg{
-			Hosts: hosts,
-		}
-	}
 }

@@ -7,7 +7,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/term"
 	"github.com/charmbracelet/x/exp/charmtone"
-	view "github.com/kirick13/shellwarden/components/view"
+	view "github.com/kirick13/shellwarden/ui/components/view"
 )
 
 // hasDarkBG = lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
@@ -15,7 +15,6 @@ import (
 
 type Display struct {
 	CurrentView view.View
-	bwSession   string
 	width       int
 	height      int
 }
@@ -53,14 +52,6 @@ func (d *Display) SetCurrentView(current view.View) {
 			d.CurrentView.SetFocusedInput(focused)
 		}
 	}
-}
-
-func (d *Display) SetBWSession(session string) {
-	d.bwSession = session
-}
-
-func (d *Display) BWSession() string {
-	return d.bwSession
 }
 
 func (d *Display) MoveFocus(delta int) {

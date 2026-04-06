@@ -1,4 +1,4 @@
-package bw
+package main
 
 import (
 	"bytes"
@@ -6,14 +6,16 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/kirick13/shellwarden/shared"
 )
 
-type UnlockResult struct {
+type unlockResult struct {
 	Session string
-	Hosts   []Host
+	Hosts   []shared.Host
 }
 
-func ListHosts(session string) ([]Host, error) {
+func listHosts(session string) ([]shared.Host, error) {
 	itemsJSON, err := listItems(session)
 	if err != nil {
 		return nil, err
@@ -22,31 +24,23 @@ func ListHosts(session string) ([]Host, error) {
 	return parseHosts(itemsJSON)
 }
 
-type Host struct {
-	ID       string
-	Name     string
-	IPv4     string
-	SSHPort  string
-	Username string
-}
-
-func Unlock(password string) (UnlockResult, error) {
+func unlock(password string) (unlockResult, error) {
 	session, err := runUnlock(password)
 	if err != nil {
-		return UnlockResult{}, err
+		return unlockResult{}, err
 	}
 
 	itemsJSON, err := listItems(session)
 	if err != nil {
-		return UnlockResult{}, err
+		return unlockResult{}, err
 	}
 
 	hosts, err := parseHosts(itemsJSON)
 	if err != nil {
-		return UnlockResult{}, err
+		return unlockResult{}, err
 	}
 
-	return UnlockResult{
+	return unlockResult{
 		Session: session,
 		Hosts:   hosts,
 	}, nil
@@ -131,19 +125,19 @@ type bwItemField struct {
 	Value string `json:"value"`
 }
 
-func parseHosts(itemsJSON string) ([]Host, error) {
+func parseHosts(itemsJSON string) ([]shared.Host, error) {
 	var items []bwItem
 	if err := json.Unmarshal([]byte(itemsJSON), &items); err != nil {
 		return nil, wrapError("parsing items failed", err.Error())
 	}
 
-	hosts := make([]Host, 0, len(items))
+	hosts := make([]shared.Host, 0, len(items))
 	for _, item := range items {
 		if item.Type != 5 {
 			continue
 		}
 
-		host := Host{
+		host := shared.Host{
 			ID:   item.ID,
 			Name: item.Name,
 		}
@@ -170,11 +164,5 @@ func parseHosts(itemsJSON string) ([]Host, error) {
 }
 
 func wrapError(prefix, msg string) error {
-	return Error(prefix + ": " + msg)
-}
-
-type Error string
-
-func (e Error) Error() string {
-	return string(e)
+	return shared.Error(prefix + ": " + msg)
 }

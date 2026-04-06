@@ -7,14 +7,14 @@ import (
 	"charm.land/bubbles/v2/table"
 	"charm.land/lipgloss/v2"
 
-	"github.com/kirick13/shellwarden/bw"
-	"github.com/kirick13/shellwarden/components/card"
-	keys "github.com/kirick13/shellwarden/components/keys"
+	"github.com/kirick13/shellwarden/shared"
+	"github.com/kirick13/shellwarden/ui/components/card"
+	keys "github.com/kirick13/shellwarden/ui/components/keys"
 )
 
 type HostsView struct {
 	BaseView
-	Rows    []bw.Host
+	Rows    []shared.Host
 	Table   table.Model
 	Reorder bool
 }
@@ -29,7 +29,7 @@ var (
 	})
 )
 
-func NewHostsView(rows []bw.Host) *HostsView {
+func NewHostsView(rows []shared.Host) *HostsView {
 	v := &HostsView{
 		BaseView: BaseView{},
 		Rows:     rows,
@@ -55,7 +55,7 @@ func NewHostsView(rows []bw.Host) *HostsView {
 	return v
 }
 
-func NewHostsViewWithSelection(rows []bw.Host, selectedID string) *HostsView {
+func NewHostsViewWithSelection(rows []shared.Host, selectedID string) *HostsView {
 	v := NewHostsView(rows)
 	v.SelectHostByID(selectedID)
 	return v
@@ -227,7 +227,7 @@ func clamp(value, minValue, maxValue int) int {
 	return min(max(value, minValue), maxValue)
 }
 
-func formatHost(host bw.Host) string {
+func formatHost(host shared.Host) string {
 	if host.SSHPort == "" {
 		return host.IPv4
 	}

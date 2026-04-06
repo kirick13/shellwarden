@@ -4,9 +4,9 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	card "github.com/kirick13/shellwarden/components/card"
-	keys "github.com/kirick13/shellwarden/components/keys"
-	input "github.com/kirick13/shellwarden/elements"
+	card "github.com/kirick13/shellwarden/ui/components/card"
+	keys "github.com/kirick13/shellwarden/ui/components/keys"
+	input "github.com/kirick13/shellwarden/ui/elements"
 )
 
 type BwUnlockView struct {

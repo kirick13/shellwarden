@@ -6,7 +6,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	card "github.com/kirick13/shellwarden/components/card"
+	card "github.com/kirick13/shellwarden/ui/components/card"
 )
 
 type SpinnerView struct {

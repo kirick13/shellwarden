@@ -1,13 +1,11 @@
 package view
 
 import tea "charm.land/bubbletea/v2"
-import input "github.com/kirick13/shellwarden/elements"
+import input "github.com/kirick13/shellwarden/ui/elements"
 
 type Display interface {
 	SetCurrentView(View)
 	InnerSize() (int, int)
-	SetBWSession(string)
-	BWSession() string
 }
 
 type View interface {
