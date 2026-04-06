@@ -18,7 +18,6 @@ var (
 )
 
 func RenderKeys(keys []Keys) string {
-
 	parts := make([]string, 0, len(keys))
 	for _, key := range keys {
 		parts = append(parts, keyStyle.Render(key.Key)+" "+titleStyle.Render(key.Title))

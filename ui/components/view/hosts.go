@@ -211,6 +211,15 @@ func (v *HostsView) SelectedHostID() string {
 	return v.Rows[index].ID
 }
 
+func (v *HostsView) SelectedHost() (shared.Host, bool) {
+	if len(v.Rows) == 0 {
+		return shared.Host{}, false
+	}
+
+	index := clamp(v.Table.Cursor(), 0, len(v.Rows)-1)
+	return v.Rows[index], true
+}
+
 func (v *HostsView) SelectHostByID(hostID string) {
 	if hostID == "" || len(v.Rows) == 0 {
 		return

@@ -174,6 +174,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.display.SetCurrentView(spinnerView)
 		return m, tea.Batch(spinnerView.Init(), bootstrapCmd())
 
+	case sshFinishedMsg:
+		spinnerView := view.NewSpinnerView("starting Shellwarden...")
+		m.display.SetCurrentView(spinnerView)
+		return m, tea.Batch(spinnerView.Init(), bootstrapCmd())
+
 	case hostsPollTickMsg:
 		if _, ok := m.display.CurrentView.(*view.HostsView); ok {
 			return m, tea.Batch(getHostsCmd(), hostsPollTickCmd())
@@ -224,6 +229,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				spinnerView := view.NewSpinnerView("unlocking Bitwarden...")
 				m.display.SetCurrentView(spinnerView)
 				return m, tea.Batch(spinnerView.Init(), unlockHostsCmd(password))
+			}
+
+			if hostsView, ok := m.display.CurrentView.(*view.HostsView); ok {
+				host, found := hostsView.SelectedHost()
+				if found {
+					return m, connectSSHCmd(host)
+				}
+				return m, viewCmd
 			}
 
 			m.display.CurrentView.OnEnter()
