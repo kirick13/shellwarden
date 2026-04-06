@@ -14,7 +14,7 @@ import (
 
 type HostsView struct {
 	BaseView
-	Rows    []bw.Bookmark
+	Rows    []bw.Host
 	Table   table.Model
 	Reorder bool
 }
@@ -33,7 +33,7 @@ var (
 	})
 )
 
-func NewHostsView(rows []bw.Bookmark) *HostsView {
+func NewHostsView(rows []bw.Host) *HostsView {
 	v := &HostsView{
 		BaseView: BaseView{},
 		Rows:     rows,
@@ -203,12 +203,12 @@ func clamp(value, minValue, maxValue int) int {
 	return min(max(value, minValue), maxValue)
 }
 
-func formatHost(bookmark bw.Bookmark) string {
-	if bookmark.SSHPort == "" {
-		return bookmark.IPv4
+func formatHost(host bw.Host) string {
+	if host.SSHPort == "" {
+		return host.IPv4
 	}
 
-	return fmt.Sprintf("%s:%s", bookmark.IPv4, bookmark.SSHPort)
+	return fmt.Sprintf("%s:%s", host.IPv4, host.SSHPort)
 }
 
 func trimToWidth(s string, width int) string {

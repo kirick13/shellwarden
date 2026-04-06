@@ -9,20 +9,20 @@ import (
 )
 
 type UnlockResult struct {
-	Session   string
-	Bookmarks []Bookmark
+	Session string
+	Hosts   []Host
 }
 
-func ListBookmarks(session string) ([]Bookmark, error) {
+func ListHosts(session string) ([]Host, error) {
 	itemsJSON, err := listItems(session)
 	if err != nil {
 		return nil, err
 	}
 
-	return parseBookmarks(itemsJSON)
+	return parseHosts(itemsJSON)
 }
 
-type Bookmark struct {
+type Host struct {
 	ID       string
 	Name     string
 	IPv4     string
@@ -41,14 +41,14 @@ func Unlock(password string) (UnlockResult, error) {
 		return UnlockResult{}, err
 	}
 
-	bookmarks, err := parseBookmarks(itemsJSON)
+	hosts, err := parseHosts(itemsJSON)
 	if err != nil {
 		return UnlockResult{}, err
 	}
 
 	return UnlockResult{
-		Session:   session,
-		Bookmarks: bookmarks,
+		Session: session,
+		Hosts:   hosts,
 	}, nil
 }
 
@@ -82,7 +82,8 @@ func listItems(session string) (string, error) {
 		return "", err
 	}
 
-	cmd := exec.Command("bw", "list", "items", "--session", session)
+	cmd := exec.Command("bw", "list", "items")
+	cmd.Env = append(os.Environ(), "BW_SESSION="+session)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -101,7 +102,8 @@ func listItems(session string) (string, error) {
 }
 
 func syncVault(session string) error {
-	cmd := exec.Command("bw", "sync", "--session", session)
+	cmd := exec.Command("bw", "sync")
+	cmd.Env = append(os.Environ(), "BW_SESSION="+session)
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -129,19 +131,19 @@ type bwItemField struct {
 	Value string `json:"value"`
 }
 
-func parseBookmarks(itemsJSON string) ([]Bookmark, error) {
+func parseHosts(itemsJSON string) ([]Host, error) {
 	var items []bwItem
 	if err := json.Unmarshal([]byte(itemsJSON), &items); err != nil {
 		return nil, wrapError("parsing items failed", err.Error())
 	}
 
-	bookmarks := make([]Bookmark, 0, len(items))
+	hosts := make([]Host, 0, len(items))
 	for _, item := range items {
 		if item.Type != 5 {
 			continue
 		}
 
-		bookmark := Bookmark{
+		host := Host{
 			ID:   item.ID,
 			Name: item.Name,
 		}
@@ -149,22 +151,22 @@ func parseBookmarks(itemsJSON string) ([]Bookmark, error) {
 		for _, field := range item.Fields {
 			switch field.Name {
 			case "IPv4":
-				bookmark.IPv4 = field.Value
+				host.IPv4 = field.Value
 			case "SSH port":
-				bookmark.SSHPort = field.Value
+				host.SSHPort = field.Value
 			case "username":
-				bookmark.Username = field.Value
+				host.Username = field.Value
 			}
 		}
 
-		if bookmark.IPv4 == "" {
+		if host.IPv4 == "" {
 			continue
 		}
 
-		bookmarks = append(bookmarks, bookmark)
+		hosts = append(hosts, host)
 	}
 
-	return bookmarks, nil
+	return hosts, nil
 }
 
 func wrapError(prefix, msg string) error {

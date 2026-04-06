@@ -22,8 +22,8 @@ type model struct {
 }
 
 type bwUnlockSuccessMsg struct {
-	Session   string
-	Bookmarks []bw.Bookmark
+	Session string
+	Hosts   []bw.Host
 }
 
 type bwUnlockErrorMsg struct {
@@ -31,7 +31,7 @@ type bwUnlockErrorMsg struct {
 }
 
 type bwReloadSuccessMsg struct {
-	Bookmarks []bw.Bookmark
+	Hosts []bw.Host
 }
 
 type bwReloadErrorMsg struct {
@@ -61,7 +61,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case bwUnlockSuccessMsg:
 		m.display.SetBWSession(msg.Session)
-		m.display.SetCurrentView(view.NewHostsView(msg.Bookmarks))
+		m.display.SetCurrentView(view.NewHostsView(msg.Hosts))
 		return m, viewCmd
 
 	case bwUnlockErrorMsg:
@@ -71,7 +71,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, viewCmd
 
 	case bwReloadSuccessMsg:
-		m.display.SetCurrentView(view.NewHostsView(msg.Bookmarks))
+		m.display.SetCurrentView(view.NewHostsView(msg.Hosts))
 		return m, viewCmd
 
 	case bwReloadErrorMsg:
@@ -174,21 +174,21 @@ func unlockBWCmd(password string) tea.Cmd {
 		}
 
 		return bwUnlockSuccessMsg{
-			Session:   result.Session,
-			Bookmarks: result.Bookmarks,
+			Session: result.Session,
+			Hosts:   result.Hosts,
 		}
 	}
 }
 
 func reloadHostsCmd(session string) tea.Cmd {
 	return func() tea.Msg {
-		bookmarks, err := bw.ListBookmarks(session)
+		hosts, err := bw.ListHosts(session)
 		if err != nil {
 			return bwReloadErrorMsg{Err: err}
 		}
 
 		return bwReloadSuccessMsg{
-			Bookmarks: bookmarks,
+			Hosts: hosts,
 		}
 	}
 }
