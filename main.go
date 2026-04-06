@@ -23,10 +23,18 @@ type model struct {
 
 type bwUnlockSuccessMsg struct {
 	Session   string
-	ItemsJSON string
+	Bookmarks []bw.Bookmark
 }
 
 type bwUnlockErrorMsg struct {
+	Err error
+}
+
+type bwReloadSuccessMsg struct {
+	Bookmarks []bw.Bookmark
+}
+
+type bwReloadErrorMsg struct {
 	Err error
 }
 
@@ -53,13 +61,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case bwUnlockSuccessMsg:
 		m.display.SetBWSession(msg.Session)
-		m.display.SetCurrentView(view.NewTextView(msg.ItemsJSON))
+		m.display.SetCurrentView(view.NewHostsView(msg.Bookmarks))
 		return m, viewCmd
 
 	case bwUnlockErrorMsg:
 		unlockView := view.NewBwUnlockView()
 		unlockView.SetError(msg.Err.Error())
 		m.display.SetCurrentView(unlockView)
+		return m, viewCmd
+
+	case bwReloadSuccessMsg:
+		m.display.SetCurrentView(view.NewHostsView(msg.Bookmarks))
+		return m, viewCmd
+
+	case bwReloadErrorMsg:
+		m.display.SetCurrentView(view.NewTextView(msg.Err.Error()))
 		return m, viewCmd
 
 	// case sshFinishedMsg:
@@ -84,12 +100,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, viewCmd
 				}
 
-				progressView := view.NewBwUnlockProgressView()
+				progressView := view.NewSpinnerView("unlocking Bitwarden...")
 				m.display.SetCurrentView(progressView)
 				return m, tea.Batch(progressView.Init(), unlockBWCmd(password))
 			}
 
 			m.display.CurrentView.OnEnter()
+		case "r":
+			if _, ok := m.display.CurrentView.(*view.HostsView); ok {
+				session := m.display.BWSession()
+				if session == "" {
+					return m, viewCmd
+				}
+
+				spinnerView := view.NewSpinnerView("updating hosts...")
+				m.display.SetCurrentView(spinnerView)
+				return m, tea.Batch(spinnerView.Init(), reloadHostsCmd(session))
+			}
+
+			m.display.CurrentView.OnKey(msg.String())
 		case "esc":
 			m.display.CurrentView.OnEsc()
 		default:
@@ -146,7 +175,20 @@ func unlockBWCmd(password string) tea.Cmd {
 
 		return bwUnlockSuccessMsg{
 			Session:   result.Session,
-			ItemsJSON: result.ItemsJSON,
+			Bookmarks: result.Bookmarks,
+		}
+	}
+}
+
+func reloadHostsCmd(session string) tea.Cmd {
+	return func() tea.Msg {
+		bookmarks, err := bw.ListBookmarks(session)
+		if err != nil {
+			return bwReloadErrorMsg{Err: err}
+		}
+
+		return bwReloadSuccessMsg{
+			Bookmarks: bookmarks,
 		}
 	}
 }

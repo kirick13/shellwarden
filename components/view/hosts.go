@@ -2,33 +2,30 @@ package view
 
 import (
 	"fmt"
-	"math/rand/v2"
 	"strings"
 
 	"charm.land/bubbles/v2/table"
 	"charm.land/lipgloss/v2"
 
+	"github.com/kirick13/shellwarden/bw"
+	"github.com/kirick13/shellwarden/components/card"
 	keys "github.com/kirick13/shellwarden/components/keys"
 )
-type Bookmark struct {
-	Name string
-	IP   string
-}
 
-type BookmarksView struct {
+type HostsView struct {
 	BaseView
-	Rows    []Bookmark
+	Rows    []bw.Bookmark
 	Table   table.Model
 	Reorder bool
 }
 
 var (
 	keysBrowse = keys.RenderKeys([]keys.Keys{
-		{Key: "n", Title: "new"},
-		{Key: "e", Title: "edit"},
-		{Key: "c", Title: "clone"},
-		{Key: "r", Title: "reorder"},
-		{Key: "backspace", Title: "delete"},
+		{Key: "r", Title: "reload"},
+		// {Key: "n", Title: "new"},
+		// {Key: "e", Title: "edit"},
+		// {Key: "c", Title: "clone"},
+		// {Key: "backspace", Title: "delete"},
 		{Key: "enter", Title: "connect"},
 	})
 	keysReorder = keys.RenderKeys([]keys.Keys{
@@ -36,16 +33,8 @@ var (
 	})
 )
 
-func NewBookmarksView() *BookmarksView {
-	rows := make([]Bookmark, 100)
-	for i := range rows {
-		rows[i] = Bookmark{
-			Name: randomName(),
-			IP:   randomIP(),
-		}
-	}
-
-	v := &BookmarksView{
+func NewHostsView(rows []bw.Bookmark) *HostsView {
+	v := &HostsView{
 		BaseView: BaseView{},
 		Rows:     rows,
 		Table: table.New(
@@ -70,7 +59,7 @@ func NewBookmarksView() *BookmarksView {
 	return v
 }
 
-func (v *BookmarksView) OnKey(key string) {
+func (v *HostsView) OnKey(key string) {
 	switch key {
 	case "up":
 		if v.Reorder {
@@ -84,22 +73,20 @@ func (v *BookmarksView) OnKey(key string) {
 			return
 		}
 		v.Table.MoveDown(1)
-	case "r":
-		v.Reorder = true
-	case "home":
-		v.Table.GotoTop()
-	case "end":
-		v.Table.GotoBottom()
+	// case "home":
+	// 	v.Table.GotoTop()
+	// case "end":
+	// 	v.Table.GotoBottom()
 	case "backspace":
 		v.openDeleteDialog()
 	}
 }
 
-func (v *BookmarksView) OnEsc() {
+func (v *HostsView) OnEsc() {
 	v.Reorder = false
 }
 
-func (v *BookmarksView) Render() string {
+func (v *HostsView) Render() string {
 	width, height := 60, 12
 	if v.Display != nil {
 		width, height = v.Display.InnerSize()
@@ -109,14 +96,16 @@ func (v *BookmarksView) Render() string {
 		return ""
 	}
 
-	v.syncTable(width, height)
+	contentWidth := max(width-6, 1)
+	contentHeight := max(height-2, 1)
+	v.syncTable(contentWidth, contentHeight)
 
 	mode := "Browse"
 	if v.Reorder {
 		mode = "Reorder"
 	}
 
-	left := lipgloss.NewStyle().Bold(true).Render("Bookmarks") +
+	left := lipgloss.NewStyle().Bold(true).Render("Hosts") +
 		"  " +
 		lipgloss.NewStyle().Foreground(lipgloss.Color("#a3a3a3")).Render(
 			fmt.Sprintf("%s %d/%d", mode, min(v.Table.Cursor()+1, max(len(v.Rows), 1)), len(v.Rows)),
@@ -127,12 +116,16 @@ func (v *BookmarksView) Render() string {
 		right = keysReorder
 	}
 
-	status := left + strings.Repeat(" ", max(width-lipgloss.Width(left)-lipgloss.Width(right), 1)) + right
+	status := left + strings.Repeat(" ", max(contentWidth-lipgloss.Width(left)-lipgloss.Width(right), 1)) + right
+	content := trimToWidth(status, contentWidth) + "\n\n" + v.Table.View()
 
-	return trimToWidth(status, width) + "\n\n" + v.Table.View()
+	return card.New().
+		Margin(0, 1).
+		Padding(0, 1).
+		Render(content)
 }
 
-func (v *BookmarksView) moveRow(delta int) {
+func (v *HostsView) moveRow(delta int) {
 	if len(v.Rows) == 0 {
 		return
 	}
@@ -148,7 +141,7 @@ func (v *BookmarksView) moveRow(delta int) {
 	v.Table.SetCursor(next)
 }
 
-func (v *BookmarksView) openDeleteDialog() {
+func (v *HostsView) openDeleteDialog() {
 	if v.Display == nil || len(v.Rows) == 0 {
 		return
 	}
@@ -160,7 +153,7 @@ func (v *BookmarksView) openDeleteDialog() {
 	}))
 }
 
-func (v *BookmarksView) deleteRow(index int) {
+func (v *HostsView) deleteRow(index int) {
 	if index < 0 || index >= len(v.Rows) {
 		return
 	}
@@ -176,69 +169,46 @@ func (v *BookmarksView) deleteRow(index int) {
 	v.Table.SetCursor(clamp(index, 0, len(v.Rows)-1))
 }
 
-func (v *BookmarksView) syncTable(width, height int) {
+func (v *HostsView) syncTable(width, height int) {
 	columnGap := 1
 	globeWidth := 3
 	usableWidth := max(width-globeWidth-(columnGap*2), 0)
 	nameWidth := max((usableWidth*3)/5, 8)
-	ipWidth := max(usableWidth-nameWidth, 7)
-	nameWidth = max(usableWidth-ipWidth, 8)
+	hostWidth := max(usableWidth-nameWidth, 7)
+	nameWidth = max(usableWidth-hostWidth, 8)
 
 	v.Table.SetColumns([]table.Column{
 		{Title: "", Width: globeWidth},
 		{Title: "Name", Width: nameWidth},
-		{Title: "IP", Width: ipWidth},
+		{Title: "Host", Width: hostWidth},
 	})
 	v.Table.SetWidth(width)
 	v.Table.SetHeight(max(height-2, 1))
 	v.syncRows()
 }
 
-func (v *BookmarksView) syncRows() {
+func (v *HostsView) syncRows() {
 	rows := make([]table.Row, len(v.Rows))
 	for i, row := range v.Rows {
 		rows[i] = table.Row{
 			" 🌐",
 			row.Name,
-			row.IP,
+			formatHost(row),
 		}
 	}
 	v.Table.SetRows(rows)
 }
 
-// func (v *BookmarksView) SetDisplay(display Display) {
-// 	v.BaseView.SetDisplay(display)
-// 	if display == nil {
-// 		return
-// 	}
-
-// 	width, height := display.InnerSize()
-// 	v.syncTable(width, height)
-// }
-
-func randomName() string {
-	adjectives := []string{
-		"blue", "quick", "silent", "north", "solid", "brisk", "calm", "bright",
-	}
-	nouns := []string{
-		"fox", "node", "shell", "gate", "box", "link", "host", "cloud",
-	}
-
-	return fmt.Sprintf("%s-%s-%02d", adjectives[rand.IntN(len(adjectives))], nouns[rand.IntN(len(nouns))], rand.IntN(100))
-}
-
-func randomIP() string {
-	return fmt.Sprintf(
-		"%d.%d.%d.%d",
-		rand.IntN(223-10)+10,
-		rand.IntN(256),
-		rand.IntN(256),
-		rand.IntN(254)+1,
-	)
-}
-
 func clamp(value, minValue, maxValue int) int {
 	return min(max(value, minValue), maxValue)
+}
+
+func formatHost(bookmark bw.Bookmark) string {
+	if bookmark.SSHPort == "" {
+		return bookmark.IPv4
+	}
+
+	return fmt.Sprintf("%s:%s", bookmark.IPv4, bookmark.SSHPort)
 }
 
 func trimToWidth(s string, width int) string {
