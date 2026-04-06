@@ -18,8 +18,9 @@ func main() {
 }
 
 type model struct {
-	display  *components.Display
-	quitting bool
+	display           *components.Display
+	quitting          bool
+	clearOnNextRender bool
 }
 
 type bwUnlockSuccessMsg struct {
@@ -74,7 +75,8 @@ type unlockPollTickMsg struct{}
 
 func initialModel() model {
 	return model{
-		display: components.NewDisplay(),
+		display:           components.NewDisplay(),
+		clearOnNextRender: true,
 	}
 }
 
@@ -100,6 +102,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, viewCmd
 
 	case bwBootstrapSuccessMsg:
+		m.clearOnNextRender = false
 		if msg.NeedsUnlock {
 			m.display.SetCurrentView(view.NewBwUnlockView())
 			return m, tea.Batch(viewCmd, unlockPollTickCmd())
@@ -108,14 +111,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(viewCmd, hostsPollTickCmd())
 
 	case bwBootstrapErrorMsg:
+		m.clearOnNextRender = false
 		m.display.SetCurrentView(view.NewTextView(msg.Err.Error()))
 		return m, viewCmd
 
 	case bwUnlockSuccessMsg:
+		m.clearOnNextRender = false
 		m.display.SetCurrentView(view.NewHostsView(msg.Hosts))
 		return m, tea.Batch(viewCmd, hostsPollTickCmd())
 
 	case bwUnlockErrorMsg:
+		m.clearOnNextRender = false
 		unlockView := view.NewBwUnlockView()
 		if msg.Err != shared.ErrServerExists {
 			unlockView.SetError(msg.Err.Error())
@@ -124,6 +130,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(viewCmd, unlockPollTickCmd())
 
 	case bwReloadSuccessMsg:
+		m.clearOnNextRender = false
 		selectedID := ""
 		if hostsView, ok := m.display.CurrentView.(*view.HostsView); ok {
 			selectedID = hostsView.SelectedHostID()
@@ -132,11 +139,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, viewCmd
 
 	case bwReloadErrorMsg:
+		m.clearOnNextRender = true
 		spinnerView := view.NewSpinnerView("starting Shellwarden...")
 		m.display.SetCurrentView(spinnerView)
 		return m, tea.Batch(spinnerView.Init(), bootstrapCmd())
 
 	case bwGetHostsSuccessMsg:
+		m.clearOnNextRender = false
 		if hostsView, ok := m.display.CurrentView.(*view.HostsView); ok {
 			m.display.SetCurrentView(view.NewHostsViewWithSelection(msg.Hosts, hostsView.SelectedHostID()))
 			return m, viewCmd
@@ -149,6 +158,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case bwGetHostsErrorMsg:
 		if _, ok := m.display.CurrentView.(*view.HostsView); ok {
+			m.clearOnNextRender = true
 			spinnerView := view.NewSpinnerView("starting Shellwarden...")
 			m.display.SetCurrentView(spinnerView)
 			return m, tea.Batch(spinnerView.Init(), bootstrapCmd())
@@ -156,25 +166,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, viewCmd
 
 	case serverRestartSuccessMsg:
+		m.clearOnNextRender = false
 		m.display.SetCurrentView(view.NewHostsView(msg.Hosts))
 		return m, tea.Batch(viewCmd, hostsPollTickCmd())
 
 	case serverRestartErrorMsg:
+		m.clearOnNextRender = true
 		spinnerView := view.NewSpinnerView("starting Shellwarden...")
 		m.display.SetCurrentView(spinnerView)
 		return m, tea.Batch(spinnerView.Init(), bootstrapCmd())
 
 	case serverKillSuccessMsg:
+		m.clearOnNextRender = true
 		spinnerView := view.NewSpinnerView("starting Shellwarden...")
 		m.display.SetCurrentView(spinnerView)
 		return m, tea.Batch(spinnerView.Init(), bootstrapCmd())
 
 	case serverKillErrorMsg:
+		m.clearOnNextRender = true
 		spinnerView := view.NewSpinnerView("starting Shellwarden...")
 		m.display.SetCurrentView(spinnerView)
 		return m, tea.Batch(spinnerView.Init(), bootstrapCmd())
 
 	case sshFinishedMsg:
+		m.clearOnNextRender = true
 		spinnerView := view.NewSpinnerView("starting Shellwarden...")
 		m.display.SetCurrentView(spinnerView)
 		return m, tea.Batch(spinnerView.Init(), bootstrapCmd())
@@ -287,7 +302,12 @@ func (m model) View() tea.View {
 		return tea.NewView("")
 	}
 
-	return tea.NewView(m.display.Render())
+	content := m.display.Render()
+	if m.clearOnNextRender {
+		content = clearTerminalSequence + content
+	}
+
+	return tea.NewView(content)
 }
 
 func bootstrapCmd() tea.Cmd {

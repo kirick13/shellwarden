@@ -12,9 +12,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/term"
 	"github.com/creack/pty"
+	"github.com/muesli/cancelreader"
 	"github.com/kirick13/shellwarden/shared"
 	keys "github.com/kirick13/shellwarden/ui/components/keys"
 )
+
+const clearTerminalSequence = "\x1b[2J\x1b[3J\x1b[H"
 
 type sshFinishedMsg struct {
 	Err error
@@ -85,7 +88,8 @@ func (c *sshExecCommand) runSession(stdinFile *os.File, stdoutWriter io.Writer, 
 	cmd := exec.Command("ssh", c.args()...)
 	cmd.Env = withEnv(os.Environ(), "SSH_AUTH_SOCK", socketPath)
 
-	_, _ = fmt.Fprint(stdoutWriter, "\x1b[2J\x1b[H")
+	_, _ = fmt.Fprintf(stdoutWriter, "\x1b]0;%s\x07", c.host.Name)
+	_, _ = fmt.Fprint(stdoutWriter, clearTerminalSequence)
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
@@ -114,14 +118,40 @@ func (c *sshExecCommand) runSession(stdinFile *os.File, stdoutWriter io.Writer, 
 		copyDone <- struct{}{}
 	}()
 
+	stdinDone := make(chan struct{}, 1)
+	cancelStdin := func() {}
 	if stdinFile != nil {
+		cancelReader, cancelErr := cancelreader.NewReader(stdinFile)
+		if cancelErr == nil {
+			cancelStdin = func() {
+				cancelReader.Cancel()
+				_ = cancelReader.Close()
+				<-stdinDone
+			}
+			go func() {
+				_, _ = io.Copy(ptmx, cancelReader)
+				stdinDone <- struct{}{}
+			}()
+		} else {
+			cancelStdin = func() {}
+			go func() {
+				_, _ = io.Copy(ptmx, stdinFile)
+				stdinDone <- struct{}{}
+			}()
+		}
+	}
+
+	if stdinFile == nil {
 		go func() {
-			_, _ = io.Copy(ptmx, stdinFile)
+			stdinDone <- struct{}{}
 		}()
 	}
 
 	waitErr := cmd.Wait()
 	<-copyDone
+	if stdinFile != nil {
+		cancelStdin()
+	}
 	return waitErr
 }
 
