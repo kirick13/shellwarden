@@ -35,7 +35,6 @@ const (
 	getHostsTimeout  = 500 * time.Millisecond
 	unlockTimeout    = 45 * time.Second
 	reloadTimeout    = 30 * time.Second
-	bootstrapBackoff = 50 * time.Millisecond
 )
 
 var (
@@ -45,29 +44,9 @@ var (
 	serverLn      net.Listener
 )
 
+var ErrServerExists = Error("server already exists")
+
 func Bootstrap() (BootstrapResult, error) {
-	for range 2 {
-		if _, err := Ping(pingTimeout); err == nil {
-			hosts, err := GetHosts()
-			if err == nil {
-				return BootstrapResult{Hosts: hosts}, nil
-			}
-			if errors.Is(err, ErrLocked) {
-				return BootstrapResult{NeedsUnlock: true}, nil
-			}
-		}
-
-		started, err := ensureServer()
-		if err != nil {
-			return BootstrapResult{}, err
-		}
-		if started {
-			return BootstrapResult{NeedsUnlock: true}, nil
-		}
-
-		time.Sleep(bootstrapBackoff)
-	}
-
 	if _, err := Ping(pingTimeout); err == nil {
 		hosts, err := GetHosts()
 		if err == nil {
@@ -113,12 +92,27 @@ func ReloadHosts() ([]Host, error) {
 }
 
 func UnlockHosts(password string) ([]Host, error) {
-	resp, err := doRequest(request{Type: "unlock", Password: password}, unlockTimeout)
+	started, err := ensureServer()
 	if err != nil {
 		return nil, err
 	}
+	if !started {
+		return nil, ErrServerExists
+	}
 
-	return decodeHostsResponse(resp)
+	resp, err := doRequest(request{Type: "unlock", Password: password}, unlockTimeout)
+	if err != nil {
+		stopServer()
+		return nil, err
+	}
+
+	hosts, err := decodeHostsResponse(resp)
+	if err != nil {
+		stopServer()
+		return nil, err
+	}
+
+	return hosts, nil
 }
 
 func decodeHostsResponse(resp response) ([]Host, error) {

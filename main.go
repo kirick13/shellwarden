@@ -56,6 +56,7 @@ type bwBootstrapErrorMsg struct {
 }
 
 type hostsPollTickMsg struct{}
+type unlockPollTickMsg struct{}
 
 func initialModel() model {
 	return model{
@@ -87,7 +88,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case bwBootstrapSuccessMsg:
 		if msg.NeedsUnlock {
 			m.display.SetCurrentView(view.NewBwUnlockView())
-			return m, viewCmd
+			return m, tea.Batch(viewCmd, unlockPollTickCmd())
 		}
 		m.display.SetCurrentView(view.NewHostsView(msg.Hosts))
 		return m, tea.Batch(viewCmd, hostsPollTickCmd())
@@ -102,9 +103,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case bwUnlockErrorMsg:
 		unlockView := view.NewBwUnlockView()
-		unlockView.SetError(msg.Err.Error())
+		if msg.Err != bw.ErrServerExists {
+			unlockView.SetError(msg.Err.Error())
+		}
 		m.display.SetCurrentView(unlockView)
-		return m, viewCmd
+		return m, tea.Batch(viewCmd, unlockPollTickCmd())
 
 	case bwReloadSuccessMsg:
 		selectedID := ""
@@ -122,17 +125,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case bwGetHostsSuccessMsg:
 		if hostsView, ok := m.display.CurrentView.(*view.HostsView); ok {
 			m.display.SetCurrentView(view.NewHostsViewWithSelection(msg.Hosts, hostsView.SelectedHostID()))
+			return m, viewCmd
+		}
+		if _, ok := m.display.CurrentView.(*view.BwUnlockView); ok {
+			m.display.SetCurrentView(view.NewHostsView(msg.Hosts))
+			return m, tea.Batch(viewCmd, hostsPollTickCmd())
 		}
 		return m, viewCmd
 
 	case bwGetHostsErrorMsg:
-		spinnerView := view.NewSpinnerView("starting Shellwarden...")
-		m.display.SetCurrentView(spinnerView)
-		return m, tea.Batch(spinnerView.Init(), bootstrapCmd())
+		if _, ok := m.display.CurrentView.(*view.HostsView); ok {
+			spinnerView := view.NewSpinnerView("starting Shellwarden...")
+			m.display.SetCurrentView(spinnerView)
+			return m, tea.Batch(spinnerView.Init(), bootstrapCmd())
+		}
+		return m, viewCmd
 
 	case hostsPollTickMsg:
 		if _, ok := m.display.CurrentView.(*view.HostsView); ok {
 			return m, tea.Batch(getHostsCmd(), hostsPollTickCmd())
+		}
+		return m, viewCmd
+
+	case unlockPollTickMsg:
+		if _, ok := m.display.CurrentView.(*view.BwUnlockView); ok {
+			return m, tea.Batch(getHostsCmd(), unlockPollTickCmd())
 		}
 		return m, viewCmd
 
@@ -262,6 +279,12 @@ func reloadHostsCmd() tea.Cmd {
 func hostsPollTickCmd() tea.Cmd {
 	return tea.Tick(3*time.Second, func(time.Time) tea.Msg {
 		return hostsPollTickMsg{}
+	})
+}
+
+func unlockPollTickCmd() tea.Cmd {
+	return tea.Tick(1*time.Second, func(time.Time) tea.Msg {
+		return unlockPollTickMsg{}
 	})
 }
 
