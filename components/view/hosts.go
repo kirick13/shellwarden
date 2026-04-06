@@ -55,6 +55,12 @@ func NewHostsView(rows []bw.Host) *HostsView {
 	return v
 }
 
+func NewHostsViewWithSelection(rows []bw.Host, selectedID string) *HostsView {
+	v := NewHostsView(rows)
+	v.SelectHostByID(selectedID)
+	return v
+}
+
 func (v *HostsView) OnKey(key string) {
 	switch key {
 	case "up":
@@ -193,6 +199,28 @@ func (v *HostsView) syncRows() {
 		}
 	}
 	v.Table.SetRows(rows)
+}
+
+func (v *HostsView) SelectedHostID() string {
+	if len(v.Rows) == 0 {
+		return ""
+	}
+
+	index := clamp(v.Table.Cursor(), 0, len(v.Rows)-1)
+	return v.Rows[index].ID
+}
+
+func (v *HostsView) SelectHostByID(hostID string) {
+	if hostID == "" || len(v.Rows) == 0 {
+		return
+	}
+
+	for i, host := range v.Rows {
+		if host.ID == hostID {
+			v.Table.SetCursor(i)
+			return
+		}
+	}
 }
 
 func clamp(value, minValue, maxValue int) int {

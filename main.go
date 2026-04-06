@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/kirick13/shellwarden/bw"
@@ -37,6 +38,14 @@ type bwReloadErrorMsg struct {
 	Err error
 }
 
+type bwGetHostsSuccessMsg struct {
+	Hosts []bw.Host
+}
+
+type bwGetHostsErrorMsg struct {
+	Err error
+}
+
 type bwBootstrapSuccessMsg struct {
 	Hosts       []bw.Host
 	NeedsUnlock bool
@@ -45,6 +54,8 @@ type bwBootstrapSuccessMsg struct {
 type bwBootstrapErrorMsg struct {
 	Err error
 }
+
+type hostsPollTickMsg struct{}
 
 func initialModel() model {
 	return model{
@@ -55,6 +66,9 @@ func initialModel() model {
 func (m model) Init() tea.Cmd {
 	if spinnerView, ok := m.display.CurrentView.(*view.SpinnerView); ok {
 		return tea.Batch(spinnerView.Init(), bootstrapCmd())
+	}
+	if _, ok := m.display.CurrentView.(*view.HostsView); ok {
+		return tea.Batch(bootstrapCmd(), hostsPollTickCmd())
 	}
 	return bootstrapCmd()
 }
@@ -73,10 +87,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case bwBootstrapSuccessMsg:
 		if msg.NeedsUnlock {
 			m.display.SetCurrentView(view.NewBwUnlockView())
-		} else {
-			m.display.SetCurrentView(view.NewHostsView(msg.Hosts))
+			return m, viewCmd
 		}
-		return m, viewCmd
+		m.display.SetCurrentView(view.NewHostsView(msg.Hosts))
+		return m, tea.Batch(viewCmd, hostsPollTickCmd())
 
 	case bwBootstrapErrorMsg:
 		m.display.SetCurrentView(view.NewTextView(msg.Err.Error()))
@@ -84,7 +98,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case bwUnlockSuccessMsg:
 		m.display.SetCurrentView(view.NewHostsView(msg.Hosts))
-		return m, viewCmd
+		return m, tea.Batch(viewCmd, hostsPollTickCmd())
 
 	case bwUnlockErrorMsg:
 		unlockView := view.NewBwUnlockView()
@@ -93,13 +107,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, viewCmd
 
 	case bwReloadSuccessMsg:
-		m.display.SetCurrentView(view.NewHostsView(msg.Hosts))
+		selectedID := ""
+		if hostsView, ok := m.display.CurrentView.(*view.HostsView); ok {
+			selectedID = hostsView.SelectedHostID()
+		}
+		m.display.SetCurrentView(view.NewHostsViewWithSelection(msg.Hosts, selectedID))
 		return m, viewCmd
 
 	case bwReloadErrorMsg:
 		spinnerView := view.NewSpinnerView("starting Shellwarden...")
 		m.display.SetCurrentView(spinnerView)
 		return m, tea.Batch(spinnerView.Init(), bootstrapCmd())
+
+	case bwGetHostsSuccessMsg:
+		if hostsView, ok := m.display.CurrentView.(*view.HostsView); ok {
+			m.display.SetCurrentView(view.NewHostsViewWithSelection(msg.Hosts, hostsView.SelectedHostID()))
+		}
+		return m, viewCmd
+
+	case bwGetHostsErrorMsg:
+		spinnerView := view.NewSpinnerView("starting Shellwarden...")
+		m.display.SetCurrentView(spinnerView)
+		return m, tea.Batch(spinnerView.Init(), bootstrapCmd())
+
+	case hostsPollTickMsg:
+		if _, ok := m.display.CurrentView.(*view.HostsView); ok {
+			return m, tea.Batch(getHostsCmd(), hostsPollTickCmd())
+		}
+		return m, viewCmd
 
 	// case sshFinishedMsg:
 	// 	return m, tea.ClearScreen
@@ -219,6 +254,25 @@ func reloadHostsCmd() tea.Cmd {
 		}
 
 		return bwReloadSuccessMsg{
+			Hosts: hosts,
+		}
+	}
+}
+
+func hostsPollTickCmd() tea.Cmd {
+	return tea.Tick(3*time.Second, func(time.Time) tea.Msg {
+		return hostsPollTickMsg{}
+	})
+}
+
+func getHostsCmd() tea.Cmd {
+	return func() tea.Msg {
+		hosts, err := bw.GetHosts()
+		if err != nil {
+			return bwGetHostsErrorMsg{Err: err}
+		}
+
+		return bwGetHostsSuccessMsg{
 			Hosts: hosts,
 		}
 	}
