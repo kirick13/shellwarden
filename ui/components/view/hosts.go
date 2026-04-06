@@ -23,6 +23,7 @@ var (
 	keysBrowse = keys.RenderKeys([]keys.Keys{
 		{Key: "r", Title: "reload"},
 		{Key: "enter", Title: "connect"},
+		{Key: "ctrl+k", Title: "server actions"},
 	})
 	keysReorder = keys.RenderKeys([]keys.Keys{
 		{Key: "esc", Title: "exit reorder"},
