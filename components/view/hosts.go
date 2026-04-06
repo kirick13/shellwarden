@@ -22,10 +22,6 @@ type HostsView struct {
 var (
 	keysBrowse = keys.RenderKeys([]keys.Keys{
 		{Key: "r", Title: "reload"},
-		// {Key: "n", Title: "new"},
-		// {Key: "e", Title: "edit"},
-		// {Key: "c", Title: "clone"},
-		// {Key: "backspace", Title: "delete"},
 		{Key: "enter", Title: "connect"},
 	})
 	keysReorder = keys.RenderKeys([]keys.Keys{
@@ -105,7 +101,7 @@ func (v *HostsView) Render() string {
 		mode = "Reorder"
 	}
 
-	left := lipgloss.NewStyle().Bold(true).Render("Hosts") +
+	left := lipgloss.NewStyle().Bold(true).Render("Shellwarden") +
 		"  " +
 		lipgloss.NewStyle().Foreground(lipgloss.Color("#a3a3a3")).Render(
 			fmt.Sprintf("%s %d/%d", mode, min(v.Table.Cursor()+1, max(len(v.Rows), 1)), len(v.Rows)),
