@@ -125,7 +125,7 @@ func makeBg() string {
 	b := strings.Builder{}
 	for i := range physicalHeight {
 		for range physicalWidth {
-			b.WriteString("/")
+			b.WriteString("⠪")
 		}
 		if i < physicalHeight - 1 {
 			b.WriteString("\n")

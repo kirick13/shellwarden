@@ -11,6 +11,7 @@ type Host struct {
 	Name     string
 	IPv4     string
 	SSHPort  string
+	SSHPublicKey string
 	Username string
 }
 

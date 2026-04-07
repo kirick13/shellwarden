@@ -118,11 +118,16 @@ type bwItem struct {
 	Type   int           `json:"type"`
 	Name   string        `json:"name"`
 	Fields []bwItemField `json:"fields"`
+	SSHKey *bwItemSSHKey `json:"sshKey"`
 }
 
 type bwItemField struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
+}
+
+type bwItemSSHKey struct {
+	PublicKey string `json:"publicKey"`
 }
 
 func parseHosts(itemsJSON string) ([]shared.Host, error) {
@@ -141,6 +146,9 @@ func parseHosts(itemsJSON string) ([]shared.Host, error) {
 			ID:   item.ID,
 			Name: item.Name,
 		}
+		if item.SSHKey != nil {
+			host.SSHPublicKey = strings.TrimSpace(item.SSHKey.PublicKey)
+		}
 
 		for _, field := range item.Fields {
 			switch field.Name {
@@ -153,7 +161,7 @@ func parseHosts(itemsJSON string) ([]shared.Host, error) {
 			}
 		}
 
-		if host.IPv4 == "" {
+		if host.IPv4 == "" || host.SSHPublicKey == "" {
 			continue
 		}
 

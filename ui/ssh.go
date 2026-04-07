@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	tea "charm.land/bubbletea/v2"
@@ -85,7 +86,14 @@ func (c *sshExecCommand) Run() error {
 }
 
 func (c *sshExecCommand) runSession(stdinFile *os.File, stdoutWriter io.Writer, socketPath string) error {
-	cmd := exec.Command("ssh", c.args()...)
+	publicKeyPath, err := c.writePublicKeyFile()
+	if err != nil {
+		_, _ = fmt.Fprintf(stdoutWriter, "\n%v\n", err)
+		return err
+	}
+	defer func() { _ = os.Remove(publicKeyPath) }()
+
+	cmd := exec.Command("ssh", c.args(publicKeyPath)...)
 	cmd.Env = withEnv(os.Environ(), "SSH_AUTH_SOCK", socketPath)
 
 	_, _ = fmt.Fprintf(stdoutWriter, "\x1b]0;%s\x07", c.host.Name)
@@ -187,8 +195,10 @@ func (c *sshExecCommand) promptNextAction(stdinFile *os.File, stdoutWriter io.Wr
 	}
 }
 
-func (c *sshExecCommand) args() []string {
-	args := make([]string, 0, 4)
+func (c *sshExecCommand) args(publicKeyPath string) []string {
+	args := make([]string, 0, 8)
+	args = append(args, "-o", "IdentitiesOnly=yes")
+	args = append(args, "-o", "IdentityFile="+publicKeyPath)
 	if c.host.SSHPort != "" {
 		args = append(args, "-p", c.host.SSHPort)
 	}
@@ -248,4 +258,30 @@ func withEnv(env []string, key, value string) []string {
 		out = append(out, prefix+value)
 	}
 	return out
+}
+
+func (c *sshExecCommand) writePublicKeyFile() (string, error) {
+	if strings.TrimSpace(c.host.SSHPublicKey) == "" {
+		return "", shared.Error("Host is missing an SSH public key.")
+	}
+
+	file, err := os.CreateTemp("", "shellwarden-*.pub")
+	if err != nil {
+		return "", err
+	}
+	path := file.Name()
+	defer func() { _ = file.Close() }()
+
+	if err := file.Chmod(0o600); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+
+	publicKey := strings.TrimSpace(c.host.SSHPublicKey) + "\n"
+	if _, err := file.WriteString(publicKey); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+
+	return path, nil
 }
