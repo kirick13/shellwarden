@@ -23,11 +23,12 @@ type startupPayload struct {
 }
 
 type daemon struct {
-	mu      sync.RWMutex
-	session string
-	hosts   []shared.Host
-	ln      net.Listener
-	path    string
+	mu          sync.RWMutex
+	session     string
+	hosts       []shared.Host
+	privateKeys map[string]string
+	ln          net.Listener
+	path        string
 }
 
 func Run() error {
@@ -228,13 +229,14 @@ func cleanupStaleSocket(path string) error {
 
 func (d *daemon) initialize(payload startupPayload) error {
 	if payload.Session != "" {
-		hosts, err := listHosts(payload.Session)
+		data, err := listHostData(payload.Session)
 		if err != nil {
 			return err
 		}
 		d.mu.Lock()
 		d.session = payload.Session
-		d.hosts = append([]shared.Host(nil), hosts...)
+		d.hosts = append([]shared.Host(nil), data.Hosts...)
+		d.privateKeys = clonePrivateKeys(data.PrivateKeys)
 		d.mu.Unlock()
 		return nil
 	}
@@ -247,6 +249,7 @@ func (d *daemon) initialize(payload startupPayload) error {
 	d.mu.Lock()
 	d.session = result.Session
 	d.hosts = append([]shared.Host(nil), result.Hosts...)
+	d.privateKeys = clonePrivateKeys(result.PrivateKeys)
 	d.mu.Unlock()
 	return nil
 }
@@ -306,7 +309,7 @@ func (d *daemon) handleRequest(req shared.Request) (shared.Response, bool) {
 		session := d.session
 		d.mu.RUnlock()
 
-		hosts, err := listHosts(session)
+		data, err := listHostData(session)
 		if err != nil {
 			if isAuthError(err) {
 				return shared.Response{Type: "error", Code: "auth", Message: err.Error()}, true
@@ -315,9 +318,18 @@ func (d *daemon) handleRequest(req shared.Request) (shared.Response, bool) {
 		}
 
 		d.mu.Lock()
-		d.hosts = append([]shared.Host(nil), hosts...)
+		d.hosts = append([]shared.Host(nil), data.Hosts...)
+		d.privateKeys = clonePrivateKeys(data.PrivateKeys)
 		d.mu.Unlock()
-		return shared.Response{Type: "hosts", Hosts: hosts}, false
+		return shared.Response{Type: "hosts", Hosts: data.Hosts}, false
+	case "getHostKey":
+		d.mu.RLock()
+		privateKey, ok := d.privateKeys[req.HostID]
+		d.mu.RUnlock()
+		if !ok || strings.TrimSpace(privateKey) == "" {
+			return shared.Response{Type: "error", Code: "missing_host_key", Message: "SSH private key not found for host"}, false
+		}
+		return shared.Response{Type: "hostKey", SSHPrivateKey: privateKey}, false
 	case "kill":
 		d.mu.RLock()
 		session := d.session
@@ -348,4 +360,16 @@ func isAuthError(err error) bool {
 		strings.Contains(msg, "You are not logged in") ||
 		strings.Contains(msg, "session is not valid") ||
 		errors.Is(err, shared.ErrAuth)
+}
+
+func clonePrivateKeys(keys map[string]string) map[string]string {
+	if len(keys) == 0 {
+		return nil
+	}
+
+	cloned := make(map[string]string, len(keys))
+	for hostID, privateKey := range keys {
+		cloned[hostID] = privateKey
+	}
+	return cloned
 }

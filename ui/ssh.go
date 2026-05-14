@@ -6,7 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -60,11 +60,37 @@ func (c *sshExecCommand) Run() error {
 		stdoutWriter = os.Stdout
 	}
 
-	socketPath, err := findBitwardenAgentSocket()
+	socketPath, err := systemAgentSocket()
 	if err != nil {
 		_, _ = fmt.Fprintf(stdoutWriter, "\n%v\n", err)
 		return err
 	}
+
+	privateKey, err := GetHostKey(c.host.ID)
+	if err != nil {
+		_, _ = fmt.Fprintf(stdoutWriter, "\n%v\n", err)
+		return err
+	}
+
+	privateKeyPath, err := c.writePrivateKeyFile(privateKey)
+	if err != nil {
+		_, _ = fmt.Fprintf(stdoutWriter, "\n%v\n", err)
+		return err
+	}
+	defer func() { _ = os.Remove(privateKeyPath) }()
+
+	publicKeyPath, err := c.writePublicKeyFile()
+	if err != nil {
+		_, _ = fmt.Fprintf(stdoutWriter, "\n%v\n", err)
+		return err
+	}
+	defer func() { _ = os.Remove(publicKeyPath) }()
+
+	if err := addKeyToAgent(stdinFile, stdoutWriter, socketPath, privateKeyPath); err != nil {
+		_, _ = fmt.Fprintf(stdoutWriter, "\n%v\n", err)
+		return err
+	}
+	defer removeKeyFromAgent(socketPath, privateKeyPath)
 
 	var oldState *term.State
 	if stdinFile != nil {
@@ -78,21 +104,14 @@ func (c *sshExecCommand) Run() error {
 	}
 
 	for {
-		runErr := c.runSession(stdinFile, stdoutWriter, socketPath)
+		runErr := c.runSession(stdinFile, stdoutWriter, socketPath, publicKeyPath)
 		if action := c.promptNextAction(stdinFile, stdoutWriter, runErr); action != "reconnect" {
 			return nil
 		}
 	}
 }
 
-func (c *sshExecCommand) runSession(stdinFile *os.File, stdoutWriter io.Writer, socketPath string) error {
-	publicKeyPath, err := c.writePublicKeyFile()
-	if err != nil {
-		_, _ = fmt.Fprintf(stdoutWriter, "\n%v\n", err)
-		return err
-	}
-	defer func() { _ = os.Remove(publicKeyPath) }()
-
+func (c *sshExecCommand) runSession(stdinFile *os.File, stdoutWriter io.Writer, socketPath, publicKeyPath string) error {
 	cmd := exec.Command("ssh", c.args(publicKeyPath)...)
 	cmd.Env = withEnv(os.Environ(), "SSH_AUTH_SOCK", socketPath)
 
@@ -208,38 +227,30 @@ func (c *sshExecCommand) args(publicKeyPath string) []string {
 
 func sshTarget(host shared.Host) string {
 	if host.Username != "" {
-		return host.Username + "@" + host.IPv4
+		return host.Username + "@" + host.IP
 	}
-	return host.IPv4
+	return host.IP
 }
 
-func findBitwardenAgentSocket() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
+func systemAgentSocket() (string, error) {
+	// Legacy Bitwarden-specific agent discovery:
+	// homeDir, err := os.UserHomeDir()
+	// if err != nil {
+	// 	return "", err
+	// }
+	//
+	// candidates := []string{
+	// 	filepath.Join(homeDir, ".bitwarden-ssh-agent.sock"),
+	// 	filepath.Join(homeDir, "Library", "Containers", "com.bitwarden.desktop", "Data", ".bitwarden-ssh-agent.sock"),
+	// 	filepath.Join(homeDir, ".var", "app", "com.bitwarden.desktop", "data", ".bitwarden-ssh-agent.sock"),
+	// 	filepath.Join(homeDir, "snap", "bitwarden", "current", ".bitwarden-ssh-agent.sock"),
+	// }
+	socketPath := os.Getenv("SSH_AUTH_SOCK")
+	if socketPath == "" {
+		return "", shared.Error("SSH_AUTH_SOCK is not set. Start a system ssh-agent first.")
 	}
 
-	candidates := []string{
-		filepath.Join(homeDir, ".bitwarden-ssh-agent.sock"),
-		filepath.Join(homeDir, "Library", "Containers", "com.bitwarden.desktop", "Data", ".bitwarden-ssh-agent.sock"),
-		filepath.Join(homeDir, ".var", "app", "com.bitwarden.desktop", "data", ".bitwarden-ssh-agent.sock"),
-		filepath.Join(homeDir, "snap", "bitwarden", "current", ".bitwarden-ssh-agent.sock"),
-	}
-
-	if envSock := os.Getenv("SSH_AUTH_SOCK"); filepath.Base(envSock) == ".bitwarden-ssh-agent.sock" {
-		candidates = append([]string{envSock}, candidates...)
-	}
-
-	for _, candidate := range candidates {
-		if candidate == "" {
-			continue
-		}
-		if info, err := os.Stat(candidate); err == nil && info.Mode()&os.ModeSocket != 0 {
-			return candidate, nil
-		}
-	}
-
-	return "", shared.Error("Bitwarden SSH agent socket not found. Enable Bitwarden desktop SSH agent first.")
+	return socketPath, nil
 }
 
 func withEnv(env []string, key, value string) []string {
@@ -284,4 +295,52 @@ func (c *sshExecCommand) writePublicKeyFile() (string, error) {
 	}
 
 	return path, nil
+}
+
+func (c *sshExecCommand) writePrivateKeyFile(privateKey string) (string, error) {
+	if strings.TrimSpace(privateKey) == "" {
+		return "", shared.Error("Host is missing an SSH private key.")
+	}
+
+	file, err := os.CreateTemp("", "shellwarden-*.key")
+	if err != nil {
+		return "", err
+	}
+	path := file.Name()
+	defer func() { _ = file.Close() }()
+
+	if err := file.Chmod(0o600); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+
+	content := strings.TrimSpace(privateKey) + "\n"
+	if _, err := file.WriteString(content); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+
+	return path, nil
+}
+
+func addKeyToAgent(stdinFile *os.File, stdoutWriter io.Writer, socketPath, privateKeyPath string) error {
+	args := []string{privateKeyPath}
+	if runtime.GOOS == "darwin" {
+		args = append([]string{"--apple-use-keychain"}, args...)
+	}
+
+	cmd := exec.Command("ssh-add", args...)
+	cmd.Env = withEnv(os.Environ(), "SSH_AUTH_SOCK", socketPath)
+	cmd.Stdin = stdinFile
+	cmd.Stdout = stdoutWriter
+	cmd.Stderr = stdoutWriter
+	return cmd.Run()
+}
+
+func removeKeyFromAgent(socketPath, privateKeyPath string) {
+	cmd := exec.Command("ssh-add", "-d", privateKeyPath)
+	cmd.Env = withEnv(os.Environ(), "SSH_AUTH_SOCK", socketPath)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	_ = cmd.Run()
 }

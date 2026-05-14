@@ -239,10 +239,10 @@ func clamp(value, minValue, maxValue int) int {
 
 func formatHost(host shared.Host) string {
 	if host.SSHPort == "" {
-		return host.IPv4
+		return host.IP
 	}
 
-	return fmt.Sprintf("%s:%s", host.IPv4, host.SSHPort)
+	return fmt.Sprintf("%s:%s", host.IP, host.SSHPort)
 }
 
 func trimToWidth(s string, width int) string {

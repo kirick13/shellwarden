@@ -11,17 +11,32 @@ import (
 )
 
 type unlockResult struct {
-	Session string
-	Hosts   []shared.Host
+	Session     string
+	Hosts       []shared.Host
+	PrivateKeys map[string]string
+}
+
+type hostData struct {
+	Hosts       []shared.Host
+	PrivateKeys map[string]string
 }
 
 func listHosts(session string) ([]shared.Host, error) {
-	itemsJSON, err := listItems(session)
+	data, err := listHostData(session)
 	if err != nil {
 		return nil, err
 	}
 
-	return parseHosts(itemsJSON)
+	return data.Hosts, nil
+}
+
+func listHostData(session string) (hostData, error) {
+	itemsJSON, err := listItems(session)
+	if err != nil {
+		return hostData{}, err
+	}
+
+	return parseHostData(itemsJSON)
 }
 
 func unlock(password string) (unlockResult, error) {
@@ -35,14 +50,15 @@ func unlock(password string) (unlockResult, error) {
 		return unlockResult{}, err
 	}
 
-	hosts, err := parseHosts(itemsJSON)
+	data, err := parseHostData(itemsJSON)
 	if err != nil {
 		return unlockResult{}, err
 	}
 
 	return unlockResult{
-		Session: session,
-		Hosts:   hosts,
+		Session:     session,
+		Hosts:       data.Hosts,
+		PrivateKeys: data.PrivateKeys,
 	}, nil
 }
 
@@ -127,16 +143,18 @@ type bwItemField struct {
 }
 
 type bwItemSSHKey struct {
-	PublicKey string `json:"publicKey"`
+	PublicKey  string `json:"publicKey"`
+	PrivateKey string `json:"privateKey"`
 }
 
-func parseHosts(itemsJSON string) ([]shared.Host, error) {
+func parseHostData(itemsJSON string) (hostData, error) {
 	var items []bwItem
 	if err := json.Unmarshal([]byte(itemsJSON), &items); err != nil {
-		return nil, wrapError("parsing items failed", err.Error())
+		return hostData{}, wrapError("parsing items failed", err.Error())
 	}
 
 	hosts := make([]shared.Host, 0, len(items))
+	privateKeys := make(map[string]string)
 	for _, item := range items {
 		if item.Type != 5 {
 			continue
@@ -149,11 +167,15 @@ func parseHosts(itemsJSON string) ([]shared.Host, error) {
 		if item.SSHKey != nil {
 			host.SSHPublicKey = strings.TrimSpace(item.SSHKey.PublicKey)
 		}
+		privateKey := ""
+		if item.SSHKey != nil {
+			privateKey = strings.TrimSpace(item.SSHKey.PrivateKey)
+		}
 
 		for _, field := range item.Fields {
 			switch field.Name {
-			case "IPv4":
-				host.IPv4 = field.Value
+			case "IP":
+				host.IP = field.Value
 			case "SSH port":
 				host.SSHPort = field.Value
 			case "username":
@@ -161,14 +183,18 @@ func parseHosts(itemsJSON string) ([]shared.Host, error) {
 			}
 		}
 
-		if host.IPv4 == "" || host.SSHPublicKey == "" {
+		if host.IP == "" || host.SSHPublicKey == "" || privateKey == "" {
 			continue
 		}
 
 		hosts = append(hosts, host)
+		privateKeys[host.ID] = privateKey
 	}
 
-	return hosts, nil
+	return hostData{
+		Hosts:       hosts,
+		PrivateKeys: privateKeys,
+	}, nil
 }
 
 func wrapError(prefix, msg string) error {

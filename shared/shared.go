@@ -9,7 +9,7 @@ import (
 type Host struct {
 	ID       string
 	Name     string
-	IPv4     string
+	IP       string
 	SSHPort  string
 	SSHPublicKey string
 	Username string
@@ -22,15 +22,17 @@ func (e Error) Error() string {
 }
 
 type Request struct {
-	Type string `json:"type"`
+	Type   string `json:"type"`
+	HostID string `json:"hostId,omitempty"`
 }
 
 type Response struct {
-	Type    string `json:"type"`
-	Hosts   []Host `json:"hosts,omitempty"`
-	Session string `json:"session,omitempty"`
-	Code    string `json:"code,omitempty"`
-	Message string `json:"message,omitempty"`
+	Type          string `json:"type"`
+	Hosts         []Host `json:"hosts,omitempty"`
+	Session       string `json:"session,omitempty"`
+	SSHPrivateKey string `json:"sshPrivateKey,omitempty"`
+	Code          string `json:"code,omitempty"`
+	Message       string `json:"message,omitempty"`
 }
 
 var (

@@ -20,6 +20,7 @@ const (
 	getHostsTimeout = 500 * time.Millisecond
 	reloadTimeout   = 30 * time.Second
 	killTimeout     = 2 * time.Second
+	getHostKeyTimeout = 5 * time.Second
 )
 
 func Bootstrap() (BootstrapResult, error) {
@@ -79,6 +80,34 @@ func KillServer() (string, error) {
 			return "", shared.Error("server returned empty session")
 		}
 		return resp.Session, nil
+	case "error":
+		if resp.Code == "locked" {
+			return "", shared.ErrLocked
+		}
+		if resp.Code == "auth" {
+			return "", shared.ErrAuth
+		}
+		if resp.Message != "" {
+			return "", shared.Error(resp.Message)
+		}
+		return "", shared.Error("unknown socket error")
+	default:
+		return "", shared.Error("unexpected socket response")
+	}
+}
+
+func GetHostKey(hostID string) (string, error) {
+	resp, err := doRequest(shared.Request{Type: "getHostKey", HostID: hostID}, getHostKeyTimeout)
+	if err != nil {
+		return "", err
+	}
+
+	switch resp.Type {
+	case "hostKey":
+		if resp.SSHPrivateKey == "" {
+			return "", shared.Error("server returned empty SSH private key")
+		}
+		return resp.SSHPrivateKey, nil
 	case "error":
 		if resp.Code == "locked" {
 			return "", shared.ErrLocked
